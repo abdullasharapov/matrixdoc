@@ -4,7 +4,7 @@ http:
       entryPoints:
       - websecure
       service: coturn
-      rule: "Host(`turn.example.com`)"
+      rule: "Host(`${TURN_DOMAIN}`)"
       tls:
         certResolver: letsencrypt
 
@@ -12,4 +12,4 @@ http:
     coturn:
       loadBalancer:
         servers:
-          - url: "http://172.17.0.1:5349"
+          - url: "http://172.17.0.1:${TURN_TLS_PORT}"
