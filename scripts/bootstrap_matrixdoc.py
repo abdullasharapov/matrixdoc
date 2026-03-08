@@ -238,6 +238,7 @@ def run_bootstrap(
     env.update(synapse_secrets)
 
     render_all_templates(project_dir, env, dry_run, log)
+    ensure_synapse_data_ownership(project_dir, dry_run, log)
     write_bootstrap_marker(project_dir, dry_run, log)
 
     log.info("Bootstrap completed successfully.")
@@ -443,6 +444,20 @@ def obtain_synapse_secrets(
     return extract_synapse_secrets(homeserver_file, log)
 
 
+def ensure_synapse_data_ownership(project_dir: Path, dry_run: bool, log: Logger) -> None:
+    data_dir = project_dir / "synapse" / "data"
+
+    log.info(f"Setting ownership 991:991 on {data_dir}")
+
+    if dry_run:
+        return
+
+    run_command(
+        ["chown", "-R", "991:991", str(data_dir)],
+        check=True,
+    )
+
+
 def generate_synapse_config(*, project_dir: Path, env: Mapping[str, str], log: Logger) -> None:
     log.info("Generating initial Synapse config via official Docker flow.")
 
@@ -526,12 +541,15 @@ def render_template(
     log.info(f"Rendering {output_path}")
     template_content = template_path.read_text(encoding="utf-8")
 
-    try:
-        rendered = Template(template_content).substitute(env)
-    except KeyError as exc:
-        raise BootstrapError(
-            f"Template {template_path} requires missing variable: {exc.args[0]}"
-        ) from exc
+    def replace_placeholder(match: re.Match[str]) -> str:
+        key = match.group(1)
+        if key not in env:
+            raise BootstrapError(
+                f"Template {template_path} requires missing variable: {key}"
+            )
+        return env[key]
+
+    rendered = re.sub(r"\{\{([A-Z0-9_]+)\}\}", replace_placeholder, template_content)
 
     if dry_run:
         return
