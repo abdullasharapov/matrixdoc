@@ -44,7 +44,8 @@ The bootstrap script is safe to run multiple times.
 ------------------------------------------------------------------------
 
 # Repository layout
-
+```text
+.
 ├── .env
 ├── docker-compose.yaml
 ├── scripts/
@@ -63,7 +64,7 @@ The bootstrap script is safe to run multiple times.
 ├── element-call/livekit/
 ├── coturn/
 └── traefik/data/
-└── docs
+```
 ------------------------------------------------------------------------
 
 # Prerequisites
