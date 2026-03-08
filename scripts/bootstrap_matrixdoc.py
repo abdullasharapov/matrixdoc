@@ -44,7 +44,6 @@ DEFAULTS = {
     "SYNAPSE_CONFIG_PATH": "/data/homeserver.yaml",
     "SYNAPSE_REPORT_STATS": "no",
     "TRAEFIK_ACME_FILE": "traefik/data/acme.json",
-    "TRAEFIK_SERVICE_FILE": "traefik/data/custom/service.yml",
     "COTURN_HOST": "coturn",
     "COTURN_PORT": "3478",
     "POSTGRES_DB": "synapse",
@@ -85,6 +84,8 @@ TEMPLATE_TARGETS = {
     "matrix.conf.tpl": PROJECT_DIR / "synapse" / "nginx" / "conf.d" / "matrix.conf",
     "turnserver.conf.tpl": PROJECT_DIR / "coturn" / "turnserver.conf",
     "livekit.yaml.tpl": PROJECT_DIR / "element-call" / "livekit" / "config.yaml",
+    "traefik.yml.tpl": PROJECT_DIR / "traefik" / "data" / "traefik.yml",
+    "traefik-dynamic.yml.tpl": PROJECT_DIR / "traefik" / "data" / "custom" / "dynamic.yml",
     "traefik-service.yml.tpl": PROJECT_DIR / "traefik" / "data" / "custom" / "service.yml",
 }
 
