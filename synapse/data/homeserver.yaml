@@ -43,7 +43,7 @@ email:
   validation_token_lifetime: 15m
 turn_uris:
   - "turn:turn.example.com:5349?transport=udp"
-turn_shared_secret: "2Uc8N2Xb1eBKR4DL6xnCrxVXXoxKZzqBJNVedBDq9GV1v5ukWJoIkTjmqSIbeaZH"
+turn_shared_secret: "turn_password"
 turn_user_lifetime: 2h
 turn_allow_guests: false
 enable_registration: false
