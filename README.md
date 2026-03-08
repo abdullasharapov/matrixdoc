@@ -1,115 +1,103 @@
-# MatrixDoc deployment bootstrap
+# MatrixDoc Deployment Bootstrap
 
-This package converts the repository into a template-driven deployment.
+This repository contains a template-driven deployment for a Matrix
+communication stack using Docker Compose.
 
-## What is included
+The stack includes:
 
-- `docker-compose.yaml` aligned with the repository directory layout.
-- `scripts/bootstrap_matrixdoc.py` to generate and render configs.
-- `.env.example` with deployment-specific variables.
-- Templates for:
-  - `synapse/data/homeserver.yaml`
-  - `element-web/config.json`
-  - `synapse/nginx/conf.d/matrix.conf`
-  - `coturn/turnserver.conf`
-  - `element-call/livekit/config.yaml`
+-   Synapse (Matrix homeserver)
+-   Element Web (Matrix client)
+-   Coturn (TURN server for WebRTC)
+-   LiveKit (media server for Element Call)
+-   Traefik (reverse proxy and TLS)
+-   PostgreSQL (Synapse database)
 
-## Directory layout expected by the compose file
+All configuration files are generated from templates using a bootstrap
+script.
 
-```text
-.
-├── .env
-├── docker-compose.yaml
-├── scripts/
-│   └── bootstrap_matrixdoc.py
-├── templates/
-│   ├── homeserver.yaml.tpl
-│   ├── element-config.json.tpl
-│   ├── matrix.conf.tpl
-│   ├── turnserver.conf.tpl
-│   └── livekit.yaml.tpl
-├── synapse/
-│   ├── data/
-│   ├── postgres/
-│   └── nginx/conf.d/
-├── element-web/
-├── element-call/livekit/
-├── coturn/
-└── traefik/data/
-```
+------------------------------------------------------------------------
 
-## Prerequisites
+# What the bootstrap script does
 
-- Docker Engine with Docker Compose plugin.
-- A pre-created external Docker network named `traefik-net`.
-- DNS records for the Synapse, Element, LiveKit, and TURN domains.
-- Traefik configuration and certificate storage under `traefik/data/`.
+`scripts/bootstrap_matrixdoc.py` prepares the repository for running
+with Docker Compose.
 
-## First-time setup
+The script automatically:
 
-1. Copy `.env.example` to `.env`.
-2. Update all values in `.env`.
-3. Make sure the external Docker network exists:
+-   Loads configuration from `.env`
+-   Validates required environment variables
+-   Verifies Docker and Docker Compose availability
+-   Creates required directories
+-   Ensures Traefik ACME storage exists (`traefik/data/acme.json`) with
+    permission `0600`
+-   Ensures the external Docker network exists (`traefik-net` by
+    default)
+-   Generates the initial Synapse configuration using the official
+    Synapse Docker workflow
+-   Extracts generated secrets from Synapse
+-   Renders configuration files from templates
+-   Sets correct ownership (`991:991`) on `synapse/data`
+-   Writes `.bootstrap.state.json` marker file
 
-   ```bash
-   docker network create traefik-net
-   ```
+The bootstrap script is safe to run multiple times.
 
-4. Run the bootstrap script:
+------------------------------------------------------------------------
 
-   ```bash
-   python3 scripts/bootstrap_matrixdoc.py
-   ```
+# Repository layout
 
-   The script will:
-   - create missing directories;
-   - generate the initial Synapse config using the official Synapse Docker workflow;
-   - reuse the generated Synapse secrets;
-   - render all final configs from templates.
+. ├── docker-compose.yaml ├── .env ├── scripts/ │ └──
+bootstrap_matrixdoc.py ├── templates/ ├── synapse/ ├── element-web/ ├──
+element-call/ ├── coturn/ ├── traefik/ └── docs/
 
-5. Start the stack:
+------------------------------------------------------------------------
 
-   ```bash
-   docker compose up -d
-   ```
+# Prerequisites
 
-## Regenerating the Synapse base config
+The following software must be installed:
 
-If you want to regenerate the Synapse-generated base file before rendering templates, run:
+-   Docker Engine
+-   Docker Compose plugin
 
-```bash
-python3 scripts/bootstrap_matrixdoc.py --force-generate
-```
+The bootstrap script will automatically verify these requirements.
 
-## Important notes
+------------------------------------------------------------------------
 
-- `synapse/data/homeserver.yaml` is generated from the template after the Synapse `generate` step.
-- Secrets such as `registration_shared_secret`, `macaroon_secret_key`, and `form_secret` are taken from the generated Synapse file and reused.
-- Coturn certificates are expected at:
+# First-time deployment
 
-  ```text
-  traefik/data/certs/${TURN_CERT_DOMAIN}/fullchain.crt
-  traefik/data/certs/${TURN_CERT_DOMAIN}/privkey.key
-  ```
+1.  Copy the environment template
 
-- The compose file still uses several `latest` tags. Pin image versions before using this in production.
-- The template values for Element still include upstream defaults such as Scalar and PostHog endpoints. Review them before production use.
-
-## Generated files
-
-After a successful bootstrap, these files will exist or be updated:
-
-- `synapse/data/homeserver.yaml`
-- `element-web/config.json`
-- `synapse/nginx/conf.d/matrix.conf`
-- `coturn/turnserver.conf`
-- `element-call/livekit/config.yaml`
-
-## Minimal deployment flow
-
-```bash
 cp .env.example .env
-vi .env
-python3 scripts/bootstrap_matrixdoc.py
+
+2.  Edit `.env` and configure all required variables.
+
+3.  Run the bootstrap script
+
+sudo python3 scripts/bootstrap_matrixdoc.py
+
+The script will:
+
+-   create required directories
+-   create the Docker network `traefik-net` if needed
+-   generate the Synapse configuration
+-   render all configuration templates
+
+4.  Start the stack
+
 docker compose up -d
-```
+
+------------------------------------------------------------------------
+
+# Regenerating Synapse configuration
+
+If you want to regenerate the Synapse base configuration:
+
+python3 scripts/bootstrap_matrixdoc.py --force-regenerate-synapse
+
+------------------------------------------------------------------------
+
+# Additional documentation
+
+See the docs directory:
+
+-   docs/ARCHITECTURE.md
+-   docs/SERVICES.md
