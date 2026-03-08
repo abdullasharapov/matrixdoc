@@ -1,61 +1,36 @@
-# MatrixDoc Deployment Bootstrap
+# MatrixDoc
 
-This repository contains a template-driven deployment for a Matrix
-communication stack using Docker Compose.
+This repository contains a Docker Compose based deployment of a Matrix stack with:
 
-The stack includes:
+- Synapse
+- Element Web
+- LiveKit
+- Coturn
+- Traefik
+- PostgreSQL
 
--   Synapse (Matrix homeserver)
--   Element Web (Matrix client)
--   Coturn (TURN server for WebRTC)
--   LiveKit (media server for Element Call)
--   Traefik (reverse proxy and TLS)
--   PostgreSQL (Synapse database)
+Additional documentation is available in the `docs/` directory:
 
-All configuration files are generated from templates using a bootstrap
-script.
+- `docs/ARCHITECTURE.md`
+- `docs/SERVICES.md`
+- `docs/architecture.mmd`
 
-------------------------------------------------------------------------
+## Repository layout
 
-# What the bootstrap script does
-
-`scripts/bootstrap_matrixdoc.py` prepares the repository for running
-with Docker Compose.
-
-The script automatically:
-
--   Loads configuration from `.env`
--   Validates required environment variables
--   Verifies Docker and Docker Compose availability
--   Creates required directories
--   Ensures Traefik ACME storage exists (`traefik/data/acme.json`) with
-    permission `0600`
--   Ensures the external Docker network exists (`traefik-net` by
-    default)
--   Generates the initial Synapse configuration using the official
-    Synapse Docker workflow
--   Extracts generated secrets from Synapse
--   Renders configuration files from templates
--   Sets correct ownership (`991:991`) on `synapse/data`
--   Writes `.bootstrap.state.json` marker file
-
-The bootstrap script is safe to run multiple times.
-
-------------------------------------------------------------------------
-
-# Repository layout
 ```text
 .
 ├── .env
+├── .env.example
 ├── docker-compose.yaml
+├── README.md
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── SERVICES.md
+│   └── architecture.mmd
 ├── scripts/
-│   └── bootstrap_matrixdoc.py
+│   ├── bootstrap_matrixdoc.py
+│   └── synapse_user_manage.sh
 ├── templates/
-│   ├── homeserver.yaml.tpl
-│   ├── element-config.json.tpl
-│   ├── matrix.conf.tpl
-│   ├── turnserver.conf.tpl
-│   └── livekit.yaml.tpl
 ├── synapse/
 │   ├── data/
 │   ├── postgres/
@@ -65,55 +40,165 @@ The bootstrap script is safe to run multiple times.
 ├── coturn/
 └── traefik/data/
 ```
-------------------------------------------------------------------------
 
-# Prerequisites
+## Bootstrap
 
-The following software must be installed:
+The project includes a bootstrap script:
 
--   Docker Engine
--   Docker Compose plugin
-
-The bootstrap script will automatically verify these requirements.
-
-------------------------------------------------------------------------
-
-# First-time deployment
-
-1.  Copy the environment template
-
-cp .env.example .env
-
-2.  Edit `.env` and configure all required variables.
-
-3.  Run the bootstrap script
-
+```bash
 sudo python3 scripts/bootstrap_matrixdoc.py
+```
 
-The script will:
+The bootstrap script:
 
--   create required directories
--   create the Docker network `traefik-net` if needed
--   generate the Synapse configuration
--   render all configuration templates
+- validates `.env`
+- verifies Docker and Docker Compose availability
+- creates required directories
+- creates `traefik-net` if it does not exist
+- creates `traefik/data/acme.json` with mode `0600`
+- generates the initial Synapse configuration
+- extracts and reuses Synapse secrets from the generated config
+- renders configuration files from templates
+- sets ownership of `synapse/data` to `991:991`
 
-4.  Start the stack
+After bootstrap, start the stack with:
 
+```bash
 docker compose up -d
+```
 
-------------------------------------------------------------------------
+### Useful bootstrap flags
 
-# Regenerating Synapse configuration
+Verbose mode:
 
-If you want to regenerate the Synapse base configuration:
+```bash
+python3 scripts/bootstrap_matrixdoc.py --verbose
+```
 
+Dry run:
+
+```bash
+python3 scripts/bootstrap_matrixdoc.py --dry-run
+```
+
+Force Synapse base config regeneration:
+
+```bash
 python3 scripts/bootstrap_matrixdoc.py --force-regenerate-synapse
+```
 
-------------------------------------------------------------------------
+## First-time deployment
 
-# Additional documentation
+1. Copy the example environment file:
 
-See the docs directory:
+```bash
+cp .env.example .env
+```
 
--   docs/ARCHITECTURE.md
--   docs/SERVICES.md
+2. Edit `.env` and set all deployment-specific values.
+
+3. Run bootstrap:
+
+```bash
+sudo python3 scripts/bootstrap_matrixdoc.py
+```
+
+4. Start the stack:
+
+```bash
+docker compose up -d
+```
+
+## Synapse user management
+
+The repository also includes an interactive helper for Synapse user administration:
+
+```bash
+bash scripts/synapse_user_manage.sh
+```
+
+This script works with the Synapse Admin API through the running `synapse-app` container.
+
+### Supported operations
+
+- create or update a user
+- reset a user password
+- suspend a user
+- unsuspend a user
+- deactivate a user
+- fetch user information
+- refresh the admin access token during the session
+
+### Authentication methods
+
+The script supports two authentication methods:
+
+1. login with an admin username and password
+2. provide an existing Synapse access token
+
+You can also pass the token through the environment:
+
+```bash
+export SYNAPSE_ADMIN_TOKEN='...'
+bash scripts/synapse_user_manage.sh
+```
+
+### Configuration sources
+
+The script reads deployment values from `.env` in the repository root.
+
+The following values are used automatically when present:
+
+- `SYNAPSE_DOMAIN`
+- `SYNAPSE_HTTP_PORT`
+
+The following optional overrides are also supported:
+
+- `SYNAPSE_ADMIN_CONTAINER`
+- `SYNAPSE_ADMIN_BASE_URL`
+- `SYNAPSE_ADMIN_TOKEN`
+
+Default behavior if overrides are not set:
+
+- container: `synapse-app`
+- base URL: `http://127.0.0.1:${SYNAPSE_HTTP_PORT:-8008}`
+
+### Requirements for the user management script
+
+Before using the script:
+
+- the `synapse-app` container must be running
+- Docker must be installed on the host
+- `curl` must be available inside the Synapse container
+- the account used for login must have Synapse admin privileges
+
+### Examples
+
+Run with values loaded from `.env`:
+
+```bash
+bash scripts/synapse_user_manage.sh
+```
+
+Use a custom token without interactive login:
+
+```bash
+SYNAPSE_ADMIN_TOKEN='your_token_here' bash scripts/synapse_user_manage.sh
+```
+
+Use a custom container name:
+
+```bash
+SYNAPSE_ADMIN_CONTAINER='synapse-app' bash scripts/synapse_user_manage.sh
+```
+
+## Notes
+
+- Synapse runs in the container as user `991`, therefore the bootstrap script sets ownership of `synapse/data` to `991:991`.
+- The repository uses template-generated configuration files.
+- Review image tags in `docker-compose.yaml` before production use and pin versions where needed.
+
+## Additional documentation
+
+- [Architecture Overview](docs/ARCHITECTURE.md)
+- [Services and Ports](docs/SERVICES.md)

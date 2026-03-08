@@ -1,20 +1,18 @@
 flowchart TD
+    User[Users / Clients]
 
-User[Users / Clients]
+    User -->|HTTPS| Traefik
 
-User -->|HTTPS| Traefik
+    Traefik --> Element[Element Web]
+    Traefik --> Synapse[Synapse]
+    Traefik --> LiveKit[LiveKit]
 
-Traefik --> Element[Element Web]
-Traefik --> Synapse[Synapse]
-Traefik --> LiveKit[LiveKit]
+    Synapse --> Postgres[(PostgreSQL)]
 
-Synapse --> Postgres[(PostgreSQL)]
+    Element --> Synapse
+    Element --> LiveKit
 
-Element --> Synapse
-Element --> LiveKit
+    Element -->|WebRTC| Coturn
+    LiveKit --> Coturn
 
-Element -->|WebRTC| Coturn
-
-LiveKit --> Coturn
-
-Coturn --> Internet
+    Coturn --> Internet

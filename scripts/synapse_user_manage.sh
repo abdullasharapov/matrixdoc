@@ -1,20 +1,79 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ====== CONFIG ======
-CONTAINER="synapse-app"
-DOMAIN="talks.opslab.ru"
-BASE_URL="http://127.0.0.1:8008"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE="${ENV_FILE:-$PROJECT_DIR/.env}"
 
-# В этой версии токен живёт в памяти; из env можно подхватить как fallback
+CONTAINER="${SYNAPSE_ADMIN_CONTAINER:-synapse-app}"
+DOMAIN="${SYNAPSE_DOMAIN:-}"
+HTTP_PORT="${SYNAPSE_HTTP_PORT:-8008}"
+BASE_URL="${SYNAPSE_ADMIN_BASE_URL:-http://127.0.0.1:${HTTP_PORT}}"
 TOKEN="${SYNAPSE_ADMIN_TOKEN:-}"
 
-# ====== Helpers ======
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
     echo "ERROR: required command not found: $1" >&2
     exit 2
   }
+}
+
+strip_quotes() {
+  local value="$1"
+  if [[ "$value" =~ ^\".*\"$ ]] || [[ "$value" =~ ^'.*'$ ]]; then
+    value="${value:1:${#value}-2}"
+  fi
+  printf '%s' "$value"
+}
+
+load_env_file() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+
+  while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
+    local line="$raw_line"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+
+    [[ -z "$line" ]] && continue
+    [[ "${line:0:1}" == "#" ]] && continue
+
+    if [[ "$line" == export* ]]; then
+      line="${line#export }"
+      line="${line#"${line%%[![:space:]]*}"}"
+    fi
+
+    [[ "$line" == *=* ]] || continue
+
+    local key="${line%%=*}"
+    local value="${line#*=}"
+
+    key="${key%"${key##*[![:space:]]}"}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="$(strip_quotes "$value")"
+
+    case "$key" in
+      SYNAPSE_DOMAIN)
+        [[ -z "${SYNAPSE_DOMAIN:-}" ]] && DOMAIN="$value"
+        ;;
+      SYNAPSE_HTTP_PORT)
+        [[ -z "${SYNAPSE_HTTP_PORT:-}" ]] && HTTP_PORT="$value"
+        ;;
+      SYNAPSE_ADMIN_CONTAINER)
+        [[ -z "${SYNAPSE_ADMIN_CONTAINER:-}" ]] && CONTAINER="$value"
+        ;;
+      SYNAPSE_ADMIN_BASE_URL)
+        [[ -z "${SYNAPSE_ADMIN_BASE_URL:-}" ]] && BASE_URL="$value"
+        ;;
+      SYNAPSE_ADMIN_TOKEN)
+        [[ -z "${SYNAPSE_ADMIN_TOKEN:-}" ]] && TOKEN="$value"
+        ;;
+    esac
+  done < "$file"
+
+  if [[ -z "${SYNAPSE_ADMIN_BASE_URL:-}" ]]; then
+    BASE_URL="http://127.0.0.1:${HTTP_PORT}"
+  fi
 }
 
 prompt() {
@@ -28,19 +87,8 @@ prompt_hidden() {
   local text="$1"
   local var
   read -r -s -p "$text" var
-  printf '\n' >&2      # newline only to console
-  printf '%s' "$var"   # value only
-}
-
-normalize_user() {
-  # Accept either "alice" or "@alice:example.com"
-  local input="$1"
-  if [[ "$input" == @*:* ]]; then
-    echo "$input"
-  else
-    input="${input#@}"
-    echo "@${input}:${DOMAIN}"
-  fi
+  printf '\n' >&2
+  printf '%s' "$var"
 }
 
 json_escape() {
@@ -53,32 +101,35 @@ json_escape() {
   echo "$s"
 }
 
+normalize_user() {
+  local input="$1"
+  if [[ "$input" == @*:* ]]; then
+    echo "$input"
+  else
+    input="${input#@}"
+    echo "@${input}:${DOMAIN}"
+  fi
+}
+
 docker_curl() {
   local method="$1"
   local url="$2"
   local body="${3:-}"
-
   local cmd=(docker exec -i "$CONTAINER" sh -lc)
 
   if [[ -n "$body" ]]; then
-    "${cmd[@]}" "curl -sS -w '\nHTTP_CODE:%{http_code}\n' -X $method \
-      -H \"Authorization: Bearer $TOKEN\" \
-      -H \"Content-Type: application/json\" \
-      \"$url\" \
-      --data-binary '$body'"
+    "${cmd[@]}" "curl -sS -w '\nHTTP_CODE:%{http_code}\n' -X $method       -H \"Authorization: Bearer $TOKEN\"       -H \"Content-Type: application/json\"       \"$url\"       --data-binary '$body'"
   else
-    "${cmd[@]}" "curl -sS -w '\nHTTP_CODE:%{http_code}\n' -X $method \
-      -H \"Authorization: Bearer $TOKEN\" \
-      -H \"Content-Type: application/json\" \
-      \"$url\""
+    "${cmd[@]}" "curl -sS -w '\nHTTP_CODE:%{http_code}\n' -X $method       -H \"Authorization: Bearer $TOKEN\"       -H \"Content-Type: application/json\"       \"$url\""
   fi
 }
 
 print_result() {
   local out="$1"
   local code
-  code="$(echo "$out" | sed -n 's/^HTTP_CODE:\([0-9][0-9][0-9]\)$/\1/p' | tail -n1)"
   local body
+
+  code="$(echo "$out" | sed -n 's/^HTTP_CODE:\([0-9][0-9][0-9]\)$/\1/p' | tail -n1)"
   body="$(echo "$out" | sed '/^HTTP_CODE:/,$d')"
 
   if [[ -n "$body" ]]; then
@@ -106,11 +157,10 @@ confirm() {
   [[ "$ans" == "y" || "$ans" == "Y" ]]
 }
 
-# ====== Auth (localpart login) ======
 get_access_token_by_login() {
   local localpart pass mxid u_e p_e body url out token_line
 
-  localpart="$(prompt "Admin login (localpart, e.g. olli): ")"
+  localpart="$(prompt "Admin login (localpart, e.g. admin): ")"
   localpart="${localpart#@}"
   mxid="@${localpart}:${DOMAIN}"
 
@@ -119,17 +169,11 @@ get_access_token_by_login() {
   u_e="$(json_escape "$mxid")"
   p_e="$(json_escape "$pass")"
   body="{\"type\":\"m.login.password\",\"user\":\"$u_e\",\"password\":\"$p_e\"}"
-
-  # Можно заменить на /v3/login при необходимости
   url="$BASE_URL/_matrix/client/r0/login"
 
   echo
   echo "Logging in as: $mxid"
-  out="$(docker exec -i "$CONTAINER" sh -lc \
-    "curl -sS -w '\nHTTP_CODE:%{http_code}\n' -X POST \
-      -H \"Content-Type: application/json\" \
-      \"$url\" \
-      --data-binary '$body'")"
+  out="$(docker exec -i "$CONTAINER" sh -lc     "curl -sS -w '\nHTTP_CODE:%{http_code}\n' -X POST       -H \"Content-Type: application/json\"       \"$url\"       --data-binary '$body'")"
 
   if ! print_result "$out"; then
     return 1
@@ -147,7 +191,6 @@ get_access_token_by_login() {
 }
 
 ensure_auth() {
-  # Если токен уже есть — ок
   if [[ -n "${TOKEN:-}" ]]; then
     return 0
   fi
@@ -170,9 +213,13 @@ ensure_auth() {
   fi
 }
 
-# ====== Preflight ======
 preflight() {
   need_cmd docker
+
+  if [[ -z "$DOMAIN" ]]; then
+    echo "ERROR: SYNAPSE_DOMAIN is not set. Define it in .env or export SYNAPSE_DOMAIN." >&2
+    exit 2
+  fi
 
   if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
     echo "ERROR: container not running or not found: $CONTAINER" >&2
@@ -184,18 +231,16 @@ preflight() {
     exit 2
   fi
 
-  # Авторизация (токен получим один раз на старт)
   ensure_auth
 }
 
-# ====== Actions ======
 action_create_user() {
   local u_raw mxid pass disp admin_flag admin_json pass_e disp_e body url out
   u_raw="$(prompt "New user (localpart or full @user:domain): ")"
   mxid="$(normalize_user "$u_raw")"
 
   pass="$(prompt_hidden "Password (hidden): ")"
-  disp="$(prompt "Displayname (optional, enter to skip): ")"
+  disp="$(prompt "Display name (optional, press Enter to skip): ")"
   admin_flag="$(prompt "Admin? (y/N): ")"
 
   admin_json="false"
@@ -213,7 +258,7 @@ action_create_user() {
   fi
 
   echo
-  echo "Creating/updating user: $mxid"
+  echo "Creating or updating user: $mxid"
   url="$BASE_URL/_synapse/admin/v2/users/$mxid"
   out="$(docker_curl PUT "$url" "$body")"
   print_result "$out"
@@ -274,13 +319,13 @@ action_deactivate() {
   mxid="$(normalize_user "$u_raw")"
 
   echo
-  echo "WARNING: Deactivate is a hard action."
+  echo "WARNING: deactivation is a destructive action."
   if ! confirm "Proceed to deactivate $mxid?"; then
     echo "Cancelled."
     return 0
   fi
 
-  erase_ans="$(prompt "Erase (GDPR) data? (y/N): ")"
+  erase_ans="$(prompt "Erase user data? (y/N): ")"
   erase_json="false"
   if [[ "$erase_ans" == "y" || "$erase_ans" == "Y" ]]; then
     erase_json="true"
@@ -308,22 +353,24 @@ action_get_user() {
 }
 
 action_relogin() {
-  # Явно перелогиниться и обновить токен в памяти
   TOKEN=""
   get_access_token_by_login
 }
 
-# ====== UI ======
 menu() {
   cat <<EOF
 
-Synapse Admin (container: $CONTAINER, domain: $DOMAIN)
+Synapse Admin
+  container : $CONTAINER
+  domain    : $DOMAIN
+  base URL  : $BASE_URL
+  env file  : $ENV_FILE
 
 1) Create user
 2) Reset password
-3) Suspend user (block)
-4) Unsuspend user (unblock)
-5) Deactivate user (DANGEROUS)
+3) Suspend user
+4) Unsuspend user
+5) Deactivate user (dangerous)
 6) Get user info
 7) Re-login (refresh token)
 0) Exit
@@ -332,6 +379,7 @@ EOF
 }
 
 main() {
+  load_env_file "$ENV_FILE"
   preflight
 
   while true; do
