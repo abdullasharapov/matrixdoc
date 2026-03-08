@@ -45,10 +45,25 @@ The bootstrap script is safe to run multiple times.
 
 # Repository layout
 
-. ├── docker-compose.yaml ├── .env ├── scripts/ │ └──
-bootstrap_matrixdoc.py ├── templates/ ├── synapse/ ├── element-web/ ├──
-element-call/ ├── coturn/ ├── traefik/ └── docs/
-
+├── .env
+├── docker-compose.yaml
+├── scripts/
+│   └── bootstrap_matrixdoc.py
+├── templates/
+│   ├── homeserver.yaml.tpl
+│   ├── element-config.json.tpl
+│   ├── matrix.conf.tpl
+│   ├── turnserver.conf.tpl
+│   └── livekit.yaml.tpl
+├── synapse/
+│   ├── data/
+│   ├── postgres/
+│   └── nginx/conf.d/
+├── element-web/
+├── element-call/livekit/
+├── coturn/
+└── traefik/data/
+└── docs
 ------------------------------------------------------------------------
 
 # Prerequisites
