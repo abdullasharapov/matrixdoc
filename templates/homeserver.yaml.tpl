@@ -1,5 +1,5 @@
 server_name: "{{SYNAPSE_DOMAIN}}"
-public_baseurl: {{SYNAPSE_PUBLIC_BASEURL}}
+public_baseurl: {{SYNAPSE_PUBLIC_BASE_URL}}
 pid_file: /data/homeserver.pid
 
 listeners:

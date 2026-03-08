@@ -57,6 +57,8 @@ services:
     container_name: synapse-db
     hostname: synapse-db
     restart: unless-stopped
+    depends_on:
+      - traefik
     networks:
       - synapse-net
     environment:
@@ -98,12 +100,19 @@ services:
     hostname: synapse-nginx
     restart: unless-stopped
     depends_on:
-      - synapse-app
+      synapse-app:
+        condition: service_healthy
     networks:
       - synapse-net
       - traefik-net
     volumes:
       - ./synapse/nginx/conf.d/matrix.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/metrics || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
     labels:
       traefik.enable: "true"
       traefik.docker.network: "traefik-net"
@@ -119,6 +128,8 @@ services:
     container_name: element
     hostname: element
     restart: unless-stopped
+    depends_on:
+      - traefik    
     networks:
       - traefik-net
     volumes:
@@ -138,6 +149,9 @@ services:
     container_name: element-call-auth-service
     hostname: element-call-auth-service
     restart: unless-stopped
+    depends_on:
+      synapse-nginx:
+        condition: service_healthy
     networks:
       - traefik-net
     environment:
@@ -169,6 +183,9 @@ services:
     command: --config /etc/livekit.yaml
     networks:
       - traefik-net
+    depends_on:
+      synapse-nginx:
+        condition: service_healthy      
     ports:
       - "7880:7880/tcp"
       - "7881:7881/tcp"
@@ -195,6 +212,8 @@ services:
     hostname: coturn
     restart: unless-stopped
     network_mode: host
+    depends_on:
+      - traefik     
     volumes:
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
       - ./traefik/data/certs/${TURN_CERT_DOMAIN}/fullchain.crt:/certs/fullchain.crt:ro

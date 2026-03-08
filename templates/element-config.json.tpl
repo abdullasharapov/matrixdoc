@@ -1,7 +1,7 @@
 {
   "default_server_config": {
     "m.homeserver": {
-      "base_url": "{{SYNAPSE_PUBLIC_BASEURL_TRIMMED}}",
+      "base_url": "{{SYNAPSE_PUBLIC_BASE_URL}}",
       "server_name": "{{SYNAPSE_DOMAIN}}"
     },
     "m.identity_server": {
@@ -31,7 +31,7 @@
   },
   "enable_presence_by_hs_url": {
     "https://matrix.org": false,
-    "{{SYNAPSE_PUBLIC_BASEURL_TRIMMED}}": false
+    "{{SYNAPSE_PUBLIC_BASE_URL}}": false
   },
   "terms_and_conditions_links": [
     {
