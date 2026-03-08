@@ -4,7 +4,7 @@ server {
 
     location /_matrix {
         proxy_pass http://synapse-app:8008;
-        proxy_set_header X-Forwarded-For $$remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
         client_max_body_size {{NGINX_CLIENT_MAX_BODY_SIZE}};
     }
 
@@ -24,7 +24,7 @@ server {
 
     location /metrics {
         proxy_pass http://synapse-app:8084/_synapse/metrics;
-        proxy_set_header X-Forwarded-For $$remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
         client_max_body_size {{NGINX_CLIENT_MAX_BODY_SIZE}};
     }
 }
