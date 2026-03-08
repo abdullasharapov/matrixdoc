@@ -1,0 +1,189 @@
+services:
+  traefik:
+    image: "traefik:v3.6.4"
+    container_name: "traefik"
+    hostname: "traefik"
+    restart: unless-stopped
+    networks:
+      - "traefik-net"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:8082:8082"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./data/traefik.yml:/traefik.yml:ro"
+      - "./data/acme.json:/acme.json"
+      - "./data/custom/:/custom/:ro"
+
+  traefik-certs-dumper:
+    image: "ldez/traefik-certs-dumper:latest"
+    container_name: "traefik-cert-dumper"
+    restart: unless-stopped
+    networks:
+      - "traefik-net"
+    depends_on:
+      - "traefik"
+    entrypoint: ["sh", "-c", "
+      apk add jq;
+      while ! [ -e /data/acme.json ] || [ $$(jq '.[] | .Certificates | length' /data/acme.json | jq -s 'add') = 0 ]; do
+        sleep 1;
+      done;
+      echo 'Starting traefik-certs-dumper with periodic permission fix...';
+      traefik-certs-dumper file --version v2 --watch --domain-subdir --crt-name=fullchain --key-name=privkey --source /data/acme.json --dest /data/certs &
+      while true; do
+        find /data/certs -type f -name '*.crt' -exec chmod 644 {} \\; 2>/dev/null;
+        find /data/certs -type f -name '*.key' -exec chmod 644 {} \\; 2>/dev/null;
+        sleep 5;
+      done
+    "]
+    volumes:
+      - "./data:/data"
+
+  synapse-app:
+    image: docker.io/matrixdotorg/synapse:latest
+    container_name: synapse-app
+    hostname: synapse-app
+    restart: unless-stopped
+    environment:
+      - SYNAPSE_CONFIG_PATH=/data/homeserver.yaml
+    volumes:
+      - ./data:/data
+    depends_on:
+      - synapse-db
+    networks:
+      - synapse-net
+    labels:
+      - "traefik.enable=false"
+
+  synapse-db:
+    image: docker.io/postgres:15-alpine
+    container_name: synapse-db
+    hostname: synapse-db
+    restart: unless-stopped
+    networks:
+      - synapse-net
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    labels:
+      - "traefik.enable=false"
+
+  synapse-nginx:
+    container_name: synapse-nginx
+    hostname: synapse-nginx
+    image: nginx:latest
+    restart: unless-stopped
+    networks:
+      - synapse-net
+      - traefik-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-net"
+      - "traefik.http.routers.synapse-nginx_https.entrypoints=websecure"
+      - "traefik.http.routers.synapse-nginx_https.rule=Host(`${SYNAPSE_DOMAIN}`)"
+      - "traefik.http.routers.synapse-nginx_https.tls=true"
+      - "traefik.http.routers.synapse-nginx_https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.synapse-nginx_https.service=synapse-nginx"
+      - "traefik.http.services.synapse-nginx.loadbalancer.server.port=80"
+    volumes:
+      - ./nginx/conf.d/matrix.conf:/etc/nginx/conf.d/matrix.conf
+
+  element:
+    image: vectorim/element-web:latest
+    container_name: element
+    hostname: element
+    restart: always
+    volumes:
+      - ./config.json:/app/config.json
+    networks:
+      - traefik-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-net"
+      - "traefik.http.routers.element-web_https.entrypoints=websecure"
+      - "traefik.http.routers.element-web_https.rule=Host(`${ELEMENT_URL}`)"
+      - "traefik.http.routers.element-web_https.tls=true"
+      - "traefik.http.routers.element-web_https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.element-web_https.service=element-web"
+      - "traefik.http.services.element-web.loadbalancer.server.port=80"
+
+  element-call-auth-service:
+    image: ghcr.io/element-hq/lk-jwt-service:latest
+    container_name: element-call-auth-service
+    hostname: element-call-auth-service
+    environment:
+      - LIVEKIT_JWT_PORT=${LIVEKIT_JWT_PORT}
+      - LIVEKIT_URL=https://${LIVEKIT_BASE_URL}/livekit/sfu
+      - LIVEKIT_KEY=${LIVEKIT_KEY}
+      - LIVEKIT_SECRET=${LIVEKIT_SECRET}
+      - LIVEKIT_FULL_ACCESS_HOMESERVERS=${LIVEKIT_FULL_ACCESS_HOMESERVERS}
+    networks:
+      - traefik-net
+    restart: unless-stopped
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-net"
+      - "traefik.http.routers.element-call-auth-service_https.entrypoints=websecure"
+      - "traefik.http.routers.element-call-auth-service_https.rule=Host(`${LIVEKIT_BASE_URL}`) && PathPrefix(`/livekit/jwt`)"
+      - "traefik.http.routers.element-call-auth-service_https.tls=true"
+      - "traefik.http.routers.element-call-auth-service_https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.element-call-auth-service_https.middlewares=element-call-auth-service-strip-prefix"
+      - "traefik.http.routers.element-call-auth-service_https.service=element-call-auth-service"
+      - "traefik.http.middlewares.element-call-auth-service-strip-prefix.stripPrefix.prefixes=/livekit/jwt"
+      - "traefik.http.services.element-call-auth-service.loadbalancer.server.port=8080"
+
+  element-call-livekit:
+    image: livekit/livekit-server:latest
+    container_name: element-call-livekit
+    hostname: element-call-livekit
+    command: --config /etc/livekit.yaml
+    networks:
+      - traefik-net
+    ports:
+      - 7880:7880/tcp
+      - 7881:7881/tcp
+      - 50100-50200:50100-50200/udp
+    restart: unless-stopped
+    volumes:
+      - ./livekit/config.yaml:/etc/livekit.yaml:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-net"
+      - "traefik.http.routers.element-call-livekit_https.entrypoints=websecure"
+      - "traefik.http.routers.element-call-livekit_https.rule=Host(`${LIVEKIT_BASE_URL}`) && PathPrefix(`/livekit/sfu`)"
+      - "traefik.http.routers.element-call-livekit_https.tls=true"
+      - "traefik.http.routers.element-call-livekit_https.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.element-call-livekit_https.middlewares=element-call-livekit-strip-prefix"
+      - "traefik.http.routers.element-call-livekit_https.service=element-call-livekit"
+      - "traefik.http.middlewares.element-call-livekit-strip-prefix.stripPrefix.prefixes=/livekit/sfu"
+      - "traefik.http.services.element-call-livekit.loadbalancer.server.port=7880"
+
+  coturn:
+    container_name: coturn
+    hostname: coturn
+    image: instrumentisto/coturn
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+      - /opt/docker/traefik/data/certs/turn.opslab.ru/fullchain.crt:/certs/fullchain.crt:ro
+      - /opt/docker/traefik/data/certs/turn.opslab.ru/privkey.key:/certs/privkey.key:ro
+
+
+networks:
+  synapse-net:
+    external: false
+  traefik-net:
+    external: true

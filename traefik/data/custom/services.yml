@@ -1,0 +1,15 @@
+http:
+  routers:
+    coturn_https:
+      entryPoints:
+      - websecure
+      service: coturn
+      rule: "Host(`turn.example.com`)"
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    coturn:
+      loadBalancer:
+        servers:
+          - url: "http://172.17.0.1:5349"
